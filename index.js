@@ -6,11 +6,9 @@ const hbs = require('nodemailer-express-handlebars')
 const path = require('path')
 const PORT = 3000
 
-const broker = "mqtt://broker.hivemq.com:1883"
-//const broker = "mqtt://172.31.250.153:1883";
+//const broker = "mqtt://broker.hivemq.com:1883"
+const broker = "mqtt://172.31.250.3:1883";
 const client = mqtt.connect(broker);
-
-var arr = [0, 0, 0.31819805, 0.31819805, 0.6988, 0.81498571, 0.99349753]
 
 const handlebarOptions = {
     viewEngine: {
@@ -26,8 +24,8 @@ var transporter = nodemailer.createTransport({
     secure: false,
     requireTLS: true,
     auth: {
-      user: 'thienhailai1304@gmail.com',
-      pass: 'Hai8557641'
+      user: '19520508@gm.uit.edu.vn',
+      pass: ''
     }
 });
 
@@ -42,15 +40,16 @@ app.all('/', function(req, res, next) {
 })
 
 // -------- EMAIL ---------
-function sendMailPrediction(prediction) {
+function sendMailPrediction(prediction, suggestion) {
     var mailOptions = {
-        from: '"Lai Thiên Hải" <thienhailai1304@gmail.com>',
-        to: 'thienhai1011@gmail.com',
+        from: '"Lai Thiên Hải" <19520508@gm.uit.edu.vn>',
+        to: 'thienhailai1304@gmail.com',
         subject: 'IoT - Group 9 - Rain Prediction',
         template: 'email',
         context: {
-          name: 'Hoangdb',
-          predict: prediction 
+          name: 'Thien Hai',
+          predict: prediction,
+          suggest: suggestion
         }
     };
 
@@ -71,12 +70,44 @@ client.on("connect", () => {
 
 
 client.on("message", (topic, message) => {
-    var data = message.toString().split(',')
+    var data = message.toString().split(' ')
 
-    console.log(`topic: ${topic.toString()} \nmessage: ${data}`)
+    console.log(`topic: ${topic.toString()} \n message: ${data}`)
+    const arrOfNum = data.map(str => {
+        return Number(str);
+    });
     
-    callName(data)
+    var result = scaleInput(arrOfNum)
+    callName(result)
 });
+
+// ------ Scale Input for Prediction ------
+function scaleInput(input) {
+    var wv = input[1], max_wv = input[2]
+
+    var wd_rad = input[0] * Math.PI / 180
+
+    var scaled_WX = wv * Math.cos(wd_rad)
+    var scaled_WY = wv * Math.sin(wd_rad)
+
+    var scaled_max_WX = max_wv * Math.cos(wd_rad)
+    var scaled_max_WY = max_wv * Math.sin(wd_rad)
+
+    var temp = input[3] / 25
+    var humid = input[4] / 70
+
+    var bPR = input[5] / 1013
+
+    var output = [scaled_WX, scaled_WY, scaled_max_WX, scaled_max_WY, temp, humid, bPR]
+
+    client.publish('iot/nhom9/temp', String(input[3]))
+    client.publish('iot/nhom9/humid', String(input[4]))
+    client.publish('iot/nhom9/wv', String(input[1]))
+    client.publish('iot/nhom9/bPR', String(input[5]))
+    client.publish('iot/nhom9/vane', String(input[0]))
+
+    return output
+}
 
 // ------ RUN PYTHON FILE ------
 function callName(arr) {
@@ -91,9 +122,26 @@ function callName(arr) {
       arr[5],
       arr[6],
     ]);
+    
     process.stdout.on('data', function(data) {
-      console.log(data.toString());
-      sendMailPrediction(data.toString())
+        let predict = data.toString().trim()
+        console.log(predict);
+
+        var suggestion
+
+        if (predict == 'Light Rain') {
+            suggestion = 'Bạn không cần mang áo mưa hay dù… chỉ cần trú tạm một lúc là hết mưa.'
+        }
+        else if (predict == 'Moderate Rain') {
+            suggestion = 'Bạn cần mang áo mưa hay dù.'
+        }
+        else if (predict == 'Heavy Rain') {
+            suggestion = 'Bạn cần mang áo mưa hay dù, đường trơn trượt, tầm nhìn hạn chế, cẩn thận khi di chuyển.'
+        }
+        else if (predict == 'Violent Rain') {
+            suggestion = 'Hãy ở nhà.'
+        }
+        sendMailPrediction(predict, suggestion)
     });
 }
 
